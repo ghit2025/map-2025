@@ -7,5 +7,7 @@
 #ifndef _MANAGER_H
 #define _MANAGER_H        1
 
+#define MSG_TYPE_WORKER_REGISTER 1
+
 #endif // _MANAGER_H
 
