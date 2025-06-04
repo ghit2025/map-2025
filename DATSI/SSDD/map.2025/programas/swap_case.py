@@ -1,0 +1,6 @@
+#!/usr/bin/python3
+# CONVIERTE MAYÚSCULAS EN MINÚSCULAS Y VICEVERSA EN LOS DATOS RECIBIDOS
+# POR LA ENTRADA ESTÁNDAR Y ESCRITOS POR LA SALIDA ESTÁNDAR
+
+import sys
+sys.stdout.write(sys.stdin.read().swapcase())

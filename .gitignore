@@ -1,0 +1,19 @@
+# binarios y objetos creados por los Makefile
+*.o
+*.a
+*.so
+*.out
+*.exe
+
+# archivos de Python compilados
+*.pyc
+__pycache__/
+
+# directorios de resultados
+salida/
+*/salida/
+
+# ficheros temporales de editores
+*~
+*.swp
+.vscode/
