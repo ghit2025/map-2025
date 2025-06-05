@@ -17,3 +17,10 @@ salida/
 *~
 *.swp
 .vscode/
+
+# ejecutables construidos por los Makefile
+DATSI/SSDD/map.2025/client_node/map
+DATSI/SSDD/map.2025/manager_node/manager
+DATSI/SSDD/map.2025/worker_node/worker
+DATSI/SSDD/map.2025/programas/multigrep
+DATSI/SSDD/map.2025/programas/swap_case
