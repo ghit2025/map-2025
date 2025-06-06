@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <string.h>
 #include "worker.h"
 #include "manager.h"
 #include "common.h"
@@ -88,6 +89,49 @@ int main(int argc, char *argv[]) {
 
     int sock_worker = create_socket_cln_by_addr(ip, port);
     if (sock_worker < 0) { close(sock_mgr); return 1; }
+
+    /* fase 3: se envía al worker la información de la tarea */
+    int len_net;
+
+    len_net = htonl(strlen(program)+1);
+    if (write(sock_worker, &len_net, sizeof(int)) != sizeof(int)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+    if (write(sock_worker, program, strlen(program)+1) != (ssize_t)(strlen(program)+1)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+
+    len_net = htonl(strlen(input)+1);
+    if (write(sock_worker, &len_net, sizeof(int)) != sizeof(int)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+    if (write(sock_worker, input, strlen(input)+1) != (ssize_t)(strlen(input)+1)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+
+    len_net = htonl(strlen(output)+1);
+    if (write(sock_worker, &len_net, sizeof(int)) != sizeof(int)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+    if (write(sock_worker, output, strlen(output)+1) != (ssize_t)(strlen(output)+1)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+
+    /* espera la respuesta del worker */
+    int reply;
+    if ((res=recv(sock_worker, &reply, sizeof(int), MSG_WAITALL))!=sizeof(int)) {
+        if (res!=0) perror("error en recv");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+
+    reply = ntohl(reply);
+    (void)reply; /* en esta fase no se utiliza el valor */
     close(sock_worker);
     close(sock_mgr);
 
