@@ -126,6 +126,20 @@ int main(int argc, char *argv[]) {
             /* proceso hijo: ejecuta el programa */
             close(s);
             close(s_conec);
+            int fd_in = open(input, O_RDONLY);
+            if (fd_in >= 0) {
+                dup2(fd_in, STDIN_FILENO);
+                close(fd_in);
+            }
+            const char *fname = strrchr(input, '/');
+            fname = fname ? fname + 1 : input;
+            char newfile[strlen(output) + 1 + strlen(fname) + 6];
+            sprintf(newfile, "%s/%s-00000", output, fname);
+            int fd_out = open(newfile, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            if (fd_out >= 0) {
+                dup2(fd_out, STDOUT_FILENO);
+                close(fd_out);
+            }
             execlp(program, program, (char *)NULL);
             perror("error en execlp");
             _exit(1);
