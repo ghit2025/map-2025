@@ -8,6 +8,7 @@
 #define _MANAGER_H        1
 
 #define MSG_TYPE_WORKER_REGISTER 1
+#define MSG_TYPE_WORKER_RESERVE 2
 
 #endif // _MANAGER_H
 
