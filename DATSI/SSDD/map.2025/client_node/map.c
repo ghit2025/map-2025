@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <string.h>
 #include "worker.h"
 #include "manager.h"
 #include "common.h"
@@ -52,6 +55,86 @@ int main(int argc, char *argv[]) {
     if ((res == -1) || !is_reg_file || !is_executable) {
         fprintf(stderr, "programa inválido\n"); return 1;
     }
+
+    int sock_mgr = create_socket_cln_by_name(argv[1], argv[2]);
+    if (sock_mgr < 0) return 1;
+
+    int opcode = htonl(MSG_TYPE_RESERVE_WORKER);
+    if (write(sock_mgr, &opcode, sizeof(int)) != sizeof(int)) {
+        perror("error en write");
+        close(sock_mgr); return 1;
+    }
+
+    int nw_net = htonl(nworkers);
+    if (write(sock_mgr, &nw_net, sizeof(int)) != sizeof(int)) {
+        perror("error en write");
+        close(sock_mgr); return 1;
+    }
+
+    unsigned int ip;
+    unsigned short port;
+    if ((res=recv(sock_mgr, &ip, sizeof(ip), MSG_WAITALL))!=sizeof(ip)) {
+        if (res!=0) perror("error en recv");
+        close(sock_mgr); return 1;
+    }
+    if ((res=recv(sock_mgr, &port, sizeof(port), MSG_WAITALL))!=sizeof(port)) {
+        if (res!=0) perror("error en recv");
+        close(sock_mgr); return 1;
+    }
+
+    if (ip==0 && port==0) {
+        close(sock_mgr);
+        return 2;
+    }
+
+    int sock_worker = create_socket_cln_by_addr(ip, port);
+    if (sock_worker < 0) { close(sock_mgr); return 1; }
+
+    /* fase 3: se envía al worker la información de la tarea */
+    int len_net;
+
+    len_net = htonl(strlen(program)+1);
+    if (write(sock_worker, &len_net, sizeof(int)) != sizeof(int)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+    if (write(sock_worker, program, strlen(program)+1) != (ssize_t)(strlen(program)+1)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+
+    len_net = htonl(strlen(input)+1);
+    if (write(sock_worker, &len_net, sizeof(int)) != sizeof(int)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+    if (write(sock_worker, input, strlen(input)+1) != (ssize_t)(strlen(input)+1)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+
+    len_net = htonl(strlen(output)+1);
+    if (write(sock_worker, &len_net, sizeof(int)) != sizeof(int)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+    if (write(sock_worker, output, strlen(output)+1) != (ssize_t)(strlen(output)+1)) {
+        perror("error en write");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+
+    /* espera la respuesta del worker */
+    int reply;
+    if ((res=recv(sock_worker, &reply, sizeof(int), MSG_WAITALL))!=sizeof(int)) {
+        if (res!=0) perror("error en recv");
+        close(sock_worker); close(sock_mgr); return 1;
+    }
+
+    reply = ntohl(reply);
+    (void)reply; /* en esta fase no se utiliza el valor */
+    close(sock_worker);
+    close(sock_mgr);
+
     return 0;
 }
 

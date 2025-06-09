@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <sys/uio.h>
+#include <string.h>
+#include <sys/wait.h>
 #include "worker.h"
 #include "manager.h"
 #include "common.h"
@@ -49,6 +51,109 @@ int main(int argc, char *argv[]) {
         }
         printf("conectado cliente con ip %s y puerto %u (formato red)\n",
                 inet_ntoa(clnt_addr.sin_addr), clnt_addr.sin_port);
+
+        /* fase 3: recepción de información de la tarea */
+        int len, res;
+        if ((res=recv(s_conec, &len, sizeof(int), MSG_WAITALL))!=sizeof(int)){
+            if (res!=0) perror("error en recv");
+            close(s_conec);
+            printf("conexión del cliente cerrada\n");
+            continue;
+        }
+        len = ntohl(len);
+        char *program = malloc(len);
+        if (!program){
+            close(s_conec);
+            printf("conexión del cliente cerrada\n");
+            continue;
+        }
+        if ((res=recv(s_conec, program, len, MSG_WAITALL))!=len){
+            if (res!=0) perror("error en recv");
+            free(program);
+            close(s_conec);
+            printf("conexión del cliente cerrada\n");
+            continue;
+        }
+
+        if ((res=recv(s_conec, &len, sizeof(int), MSG_WAITALL))!=sizeof(int)){
+            if (res!=0) perror("error en recv");
+            free(program);
+            close(s_conec);
+            printf("conexión del cliente cerrada\n");
+            continue;
+        }
+        len = ntohl(len);
+        char *input = malloc(len);
+        if (!input){
+            free(program);
+            close(s_conec);
+            printf("conexión del cliente cerrada\n");
+            continue;
+        }
+        if ((res=recv(s_conec, input, len, MSG_WAITALL))!=len){
+            if (res!=0) perror("error en recv");
+            free(input); free(program);
+            close(s_conec);
+            printf("conexión del cliente cerrada\n");
+            continue;
+        }
+
+        if ((res=recv(s_conec, &len, sizeof(int), MSG_WAITALL))!=sizeof(int)){
+            if (res!=0) perror("error en recv");
+            free(input); free(program);
+            close(s_conec);
+            printf("conexión del cliente cerrada\n");
+            continue;
+        }
+        len = ntohl(len);
+        char *output = malloc(len);
+        if (!output){
+            free(input); free(program);
+            close(s_conec);
+            printf("conexión del cliente cerrada\n");
+            continue;
+        }
+        if ((res=recv(s_conec, output, len, MSG_WAITALL))!=len){
+            if (res!=0) perror("error en recv");
+            free(output); free(input); free(program);
+            close(s_conec);
+            printf("conexión del cliente cerrada\n");
+            continue;
+        }
+
+        pid_t pid=fork();
+        if (pid==0) {
+            /* proceso hijo: ejecuta el programa */
+            close(s);
+            close(s_conec);
+            int fd_in = open(input, O_RDONLY);
+            if (fd_in >= 0) {
+                dup2(fd_in, STDIN_FILENO);
+                close(fd_in);
+            }
+            const char *fname = strrchr(input, '/');
+            fname = fname ? fname + 1 : input;
+            char newfile[strlen(output) + 1 + strlen(fname) + 6];
+            sprintf(newfile, "%s/%s-00000", output, fname);
+            int fd_out = open(newfile, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            if (fd_out >= 0) {
+                dup2(fd_out, STDOUT_FILENO);
+                close(fd_out);
+            }
+            execlp(program, program, (char *)NULL);
+            perror("error en execlp");
+            _exit(1);
+        }
+
+        int status;
+        waitpid(pid, &status, 0);
+
+        int reply = htonl(WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+        write(s_conec, &reply, sizeof(int));
+
+        free(output);
+        free(input);
+        free(program);
         close(s_conec);
         printf("conexión del cliente cerrada\n");
     }
