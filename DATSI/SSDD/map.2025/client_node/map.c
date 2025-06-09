@@ -57,8 +57,24 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "programa inválido\n"); return 1;
     }
 
-    int s = create_socket_cln_by_name(argv[1], argv[2]);
-    if (s < 0) return 1;
+    int sm = create_socket_cln_by_name(argv[1], argv[2]);
+    if (sm < 0) return 1;
+
+    int opcode = htonl(MSG_TYPE_WORKER_RESERVE);
+    int nworkers_net = htonl(nworkers);
+    struct iovec rqv[2];
+    rqv[0].iov_base = &opcode; rqv[0].iov_len = sizeof(int);
+    rqv[1].iov_base = &nworkers_net; rqv[1].iov_len = sizeof(int);
+    if (writev(sm, rqv, 2) < 0) { perror("error en writev"); close(sm); return 1; }
+
+    unsigned int ips[nworkers];
+    unsigned short ports[nworkers];
+    for (int i=0; i<nworkers; i++) {
+        if (recv(sm, &ips[i], sizeof(unsigned int), MSG_WAITALL)!=sizeof(unsigned int) ||
+            recv(sm, &ports[i], sizeof(unsigned short), MSG_WAITALL)!=sizeof(unsigned short)) {
+            perror("error en recv"); close(sm); return 1; }
+    }
+    close(sm);
 
     int input_len = strlen(input);
     int output_len = strlen(output);
@@ -70,37 +86,38 @@ int main(int argc, char *argv[]) {
     int program_len_net = htonl(program_len);
 
     size_t nblocks = (input_size + blocksize - 1) / blocksize;
-    int nblocks_net = htonl(nblocks);
 
-    struct iovec hdr[8];
-    int h = 0;
-    hdr[h].iov_base = &input_len_net; hdr[h++].iov_len = sizeof(int);
-    hdr[h].iov_base = input; hdr[h++].iov_len = input_len;
-    hdr[h].iov_base = &output_len_net; hdr[h++].iov_len = sizeof(int);
-    hdr[h].iov_base = output; hdr[h++].iov_len = output_len;
-    hdr[h].iov_base = &program_len_net; hdr[h++].iov_len = sizeof(int);
-    hdr[h].iov_base = program; hdr[h++].iov_len = program_len;
-    hdr[h].iov_base = &blocksize_net; hdr[h++].iov_len = sizeof(int);
-    hdr[h].iov_base = &nblocks_net; hdr[h++].iov_len = sizeof(int);
+    int sockets[nblocks];
 
-    if (writev(s, hdr, h) < 0) {
-        perror("error en writev"); close(s); return 1;
+    for (int i = 0; i < (int)nblocks; i++) {
+        sockets[i] = create_socket_cln_by_addr(ips[i], ports[i]);
+        if (sockets[i] < 0) { perror("error connect worker"); return 1; }
+
+        int nblocks_net = htonl(1);
+        struct iovec hdr[8];
+        int h = 0;
+        hdr[h].iov_base = &input_len_net; hdr[h++].iov_len = sizeof(int);
+        hdr[h].iov_base = input; hdr[h++].iov_len = input_len;
+        hdr[h].iov_base = &output_len_net; hdr[h++].iov_len = sizeof(int);
+        hdr[h].iov_base = output; hdr[h++].iov_len = output_len;
+        hdr[h].iov_base = &program_len_net; hdr[h++].iov_len = sizeof(int);
+        hdr[h].iov_base = program; hdr[h++].iov_len = program_len;
+        hdr[h].iov_base = &blocksize_net; hdr[h++].iov_len = sizeof(int);
+        hdr[h].iov_base = &nblocks_net; hdr[h++].iov_len = sizeof(int);
+        if (writev(sockets[i], hdr, h) < 0) { perror("error en writev"); return 1; }
+
+        int block_net = htonl(i);
+        if (write(sockets[i], &block_net, sizeof(int)) != sizeof(int)) {
+            perror("error en write"); return 1; }
     }
 
     for (int i = 0; i < (int)nblocks; i++) {
-        int block_net = htonl(i);
-        if (write(s, &block_net, sizeof(int)) != sizeof(int)) {
-            perror("error en write"); close(s); return 1;
-        }
         int ack;
-        int res = recv(s, &ack, sizeof(int), MSG_WAITALL);
-        if (res != sizeof(int)) {
-            if (res != 0) perror("error en recv");
-            close(s); return 1;
-        }
+        int res = recv(sockets[i], &ack, sizeof(int), MSG_WAITALL);
+        if (res != sizeof(int)) { if (res!=0) perror("error en recv"); }
+        close(sockets[i]);
     }
 
-    close(s);
     return 0;
 }
 

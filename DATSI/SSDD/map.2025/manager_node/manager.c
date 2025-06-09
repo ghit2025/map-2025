@@ -18,7 +18,6 @@ typedef struct thread_info {
 static void *connection_handler(void *arg){
     thread_info *th = arg;
     int opcode, res;
-    unsigned short port;
 
     if ((res=recv(th->socket, &opcode, sizeof(int), MSG_WAITALL))!=sizeof(int)){
         if (res!=0) perror("error en recv");
@@ -27,18 +26,44 @@ static void *connection_handler(void *arg){
         return NULL;
     }
     opcode = ntohl(opcode);
-    if ((res=recv(th->socket, &port, sizeof(unsigned short), MSG_WAITALL))!=sizeof(unsigned short)){
-        if (res!=0) perror("error en recv");
-        close(th->socket);
-        free(th);
-        return NULL;
-    }
-    if (opcode == 1) {
+    if (opcode == MSG_TYPE_WORKER_REGISTER) {
+        unsigned short port;
+        if ((res=recv(th->socket, &port, sizeof(unsigned short), MSG_WAITALL))!=sizeof(unsigned short)){
+            if (res!=0) perror("error en recv");
+            close(th->socket);
+            free(th);
+            return NULL;
+        }
         srv_addr_arr_add(th->arr, th->addr.sin_addr.s_addr, port);
         srv_addr_arr_print("después de alta", th->arr);
+        int reply = htonl(0);
+        write(th->socket, &reply, sizeof(int));
+    } else if (opcode == MSG_TYPE_WORKER_RESERVE) {
+        int nworkers_net;
+        if ((res=recv(th->socket, &nworkers_net, sizeof(int), MSG_WAITALL))!=sizeof(int)){
+            if (res!=0) perror("error en recv");
+            close(th->socket);
+            free(th);
+            return NULL;
+        }
+        int nworkers = ntohl(nworkers_net);
+        int *srv = malloc(sizeof(int)*nworkers);
+        if (!srv || srv_addr_arr_alloc(th->arr, nworkers, srv)==-1) {
+            int err = htonl(-1);
+            write(th->socket, &err, sizeof(int));
+            free(srv);
+            close(th->socket);
+            free(th);
+            return NULL;
+        }
+        for (int i=0; i<nworkers; i++) {
+            unsigned int ip; unsigned short port;
+            srv_addr_arr_get(th->arr, srv[i], &ip, &port);
+            write(th->socket, &ip, sizeof(unsigned int));
+            write(th->socket, &port, sizeof(unsigned short));
+        }
+        free(srv);
     }
-    int reply = htonl(0);
-    write(th->socket, &reply, sizeof(int));
     close(th->socket);
     free(th);
     printf("conexión del cliente cerrada\n");
