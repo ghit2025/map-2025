@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <string.h>
+#include <sys/uio.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 #include "worker.h"
 #include "manager.h"
 #include "common.h"
@@ -52,6 +56,51 @@ int main(int argc, char *argv[]) {
     if ((res == -1) || !is_reg_file || !is_executable) {
         fprintf(stderr, "programa inválido\n"); return 1;
     }
+
+    int s = create_socket_cln_by_name(argv[1], argv[2]);
+    if (s < 0) return 1;
+
+    int input_len = strlen(input);
+    int output_len = strlen(output);
+    int program_len = strlen(program);
+
+    int blocksize_net = htonl(blocksize);
+    int input_len_net = htonl(input_len);
+    int output_len_net = htonl(output_len);
+    int program_len_net = htonl(program_len);
+
+    size_t nblocks = (input_size + blocksize - 1) / blocksize;
+    int nblocks_net = htonl(nblocks);
+
+    struct iovec hdr[8];
+    int h = 0;
+    hdr[h].iov_base = &input_len_net; hdr[h++].iov_len = sizeof(int);
+    hdr[h].iov_base = input; hdr[h++].iov_len = input_len;
+    hdr[h].iov_base = &output_len_net; hdr[h++].iov_len = sizeof(int);
+    hdr[h].iov_base = output; hdr[h++].iov_len = output_len;
+    hdr[h].iov_base = &program_len_net; hdr[h++].iov_len = sizeof(int);
+    hdr[h].iov_base = program; hdr[h++].iov_len = program_len;
+    hdr[h].iov_base = &blocksize_net; hdr[h++].iov_len = sizeof(int);
+    hdr[h].iov_base = &nblocks_net; hdr[h++].iov_len = sizeof(int);
+
+    if (writev(s, hdr, h) < 0) {
+        perror("error en writev"); close(s); return 1;
+    }
+
+    for (int i = 0; i < (int)nblocks; i++) {
+        int block_net = htonl(i);
+        if (write(s, &block_net, sizeof(int)) != sizeof(int)) {
+            perror("error en write"); close(s); return 1;
+        }
+        int ack;
+        int res = recv(s, &ack, sizeof(int), MSG_WAITALL);
+        if (res != sizeof(int)) {
+            if (res != 0) perror("error en recv");
+            close(s); return 1;
+        }
+    }
+
+    close(s);
     return 0;
 }
 
