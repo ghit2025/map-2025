@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <string.h>
 #include "worker.h"
 #include "manager.h"
 #include "common.h"
@@ -84,6 +85,24 @@ int main(int argc, char *argv[]) {
 
     int s_worker = create_socket_cln_by_addr(ip, port);
     if (s_worker < 0) {
+        close(s_mgr);
+        return 1;
+    }
+
+    /* envia informacion inicial al worker */
+    if (write(s_worker, input, strlen(input)+1)!=strlen(input)+1 ||
+        write(s_worker, output, strlen(output)+1)!=strlen(output)+1 ||
+        write(s_worker, program, strlen(program)+1)!=strlen(program)+1) {
+        perror("error en write");
+        close(s_worker);
+        close(s_mgr);
+        return 1;
+    }
+
+    int ack;
+    if (recv(s_worker, &ack, sizeof(ack), MSG_WAITALL)!=sizeof(ack)) {
+        perror("error en recv");
+        close(s_worker);
         close(s_mgr);
         return 1;
     }
