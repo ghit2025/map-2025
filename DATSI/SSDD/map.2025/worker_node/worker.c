@@ -3,6 +3,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/wait.h>
+#include <fcntl.h>
+#include <string.h>
 #include "worker.h"
 #include "manager.h"
 #include "common.h"
@@ -75,6 +77,25 @@ int main(int argc, char *argv[]) {
 
         pid_t pid=fork();
         if (pid==0) {
+            /* Fase 4: redirección de stdin/out a ficheros */
+            char *base = strrchr(input, '/');
+            base = base ? base + 1 : input;
+            char out_file[1024];
+            snprintf(out_file, sizeof(out_file), "%s/%s-00000", output, base);
+
+            int fd_in = open(input, O_RDONLY);
+            int fd_out = open(out_file, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+            if (fd_in < 0 || fd_out < 0) {
+                perror("open");
+                if (fd_in >= 0) close(fd_in);
+                if (fd_out >= 0) close(fd_out);
+                _exit(1);
+            }
+            dup2(fd_in, STDIN_FILENO);
+            dup2(fd_out, STDOUT_FILENO);
+            close(fd_in);
+            close(fd_out);
+
             execlp(program, program, (char *)NULL);
             perror("execlp");
             _exit(1);
