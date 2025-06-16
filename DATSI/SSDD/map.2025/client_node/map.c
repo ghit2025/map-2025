@@ -65,61 +65,57 @@ int main(int argc, char *argv[]) {
         perror("error en write");
         close(s_mgr); return 1;
     }
-    int n = htonl(1); /* por ahora solo se reserva 1 */
+    int n = htonl(nworkers);
     if (write(s_mgr, &n, sizeof(n)) != sizeof(n)) {
         perror("error en write");
         close(s_mgr); return 1;
     }
-    unsigned int ip;
-    unsigned short port;
-    if (recv(s_mgr, &ip, sizeof(ip), MSG_WAITALL) != sizeof(ip) ||
-        recv(s_mgr, &port, sizeof(port), MSG_WAITALL) != sizeof(port)) {
-        perror("error en recv");
+    unsigned int *ips = malloc(sizeof(unsigned int)*nworkers);
+    unsigned short *ports = malloc(sizeof(unsigned short)*nworkers);
+    if (!ips || !ports) {
+        perror("malloc");
         close(s_mgr); return 1;
     }
-
-    if (ip==0 && port==0) { /* no workers disponibles */
-        close(s_mgr);
-        return 2;
-    }
-
-    int s_worker = create_socket_cln_by_addr(ip, port);
-    if (s_worker < 0) {
-        close(s_mgr);
-        return 1;
-    }
-
-    /* envia informacion inicial al worker */
-    int blks_net = htonl(blocksize);
-    if (write(s_worker, input, strlen(input)+1)!=strlen(input)+1 ||
-        write(s_worker, output, strlen(output)+1)!=strlen(output)+1 ||
-        write(s_worker, program, strlen(program)+1)!=strlen(program)+1 ||
-        write(s_worker, &blks_net, sizeof(blks_net))!=sizeof(blks_net)) {
-        perror("error en write");
-        close(s_worker);
-        close(s_mgr);
-        return 1;
+    for (int i=0;i<nworkers;i++) {
+        if (recv(s_mgr, &ips[i], sizeof(unsigned int), MSG_WAITALL)!=sizeof(unsigned int) ||
+            recv(s_mgr, &ports[i], sizeof(unsigned short), MSG_WAITALL)!=sizeof(unsigned short)) {
+            perror("error en recv");
+            close(s_mgr); return 1;
+        }
     }
 
     int nblocks = (input_size + blocksize - 1) / blocksize;
-    int ack;
-    for (int i=0; i<nblocks; i++) {
+    int num_used = nblocks < nworkers ? nblocks : nworkers;
+    int *s_workers = calloc(num_used, sizeof(int));
+    if (!s_workers) { perror("malloc"); close(s_mgr); return 1; }
+    int blks_net = htonl(blocksize);
+    for (int i=0;i<num_used;i++) {
+        if (ips[i]==0 && ports[i]==0) {
+            close(s_mgr); free(ips); free(ports); free(s_workers); return 2; }
+        int s_worker = create_socket_cln_by_addr(ips[i], ports[i]);
+        if (s_worker < 0) { close(s_mgr); free(ips); free(ports); free(s_workers); return 1; }
+        s_workers[i]=s_worker;
+        if (write(s_worker, input, strlen(input)+1)!=strlen(input)+1 ||
+            write(s_worker, output, strlen(output)+1)!=strlen(output)+1 ||
+            write(s_worker, program, strlen(program)+1)!=strlen(program)+1 ||
+            write(s_worker, &blks_net, sizeof(blks_net))!=sizeof(blks_net)) {
+            perror("error en write");
+            close(s_worker); close(s_mgr); free(ips); free(ports); free(s_workers); return 1; }
         int bnet = htonl(i);
         if (write(s_worker, &bnet, sizeof(bnet)) != sizeof(bnet)) {
             perror("error en write");
-            close(s_worker);
-            close(s_mgr);
-            return 1;
-        }
-        if (recv(s_worker, &ack, sizeof(ack), MSG_WAITALL)!=sizeof(ack)) {
-            perror("error en recv");
-            close(s_worker);
-            close(s_mgr);
-            return 1;
-        }
+            close(s_worker); close(s_mgr); free(ips); free(ports); free(s_workers); return 1; }
     }
 
-    close(s_worker);
+    int ack;
+    for (int i=0;i<num_used;i++) {
+        if (recv(s_workers[i], &ack, sizeof(ack), MSG_WAITALL)!=sizeof(ack)) {
+            perror("error en recv");
+            close(s_workers[i]); close(s_mgr); free(ips); free(ports); free(s_workers); return 1; }
+        close(s_workers[i]);
+    }
+
+    free(ips); free(ports); free(s_workers);
     close(s_mgr);
     return 0;
 }

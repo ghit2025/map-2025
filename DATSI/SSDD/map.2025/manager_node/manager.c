@@ -47,21 +47,34 @@ static void *connection_handler(void *arg) {
         }
         n = ntohl(n);
         if (n<1) n=1; /* por compatibilidad futura */
-        int srv_id;
-        unsigned int ip=0;
-        unsigned short port=0;
-        if (srv_addr_arr_alloc(th->srv_arr, 1, &srv_id)==0) {
-            srv_addr_arr_get(th->srv_arr, srv_id, &ip, &port);
+
+        int *srv_ids = malloc(sizeof(int)*n);
+        int success = 0;
+        if (srv_ids && srv_addr_arr_alloc(th->srv_arr, n, srv_ids)==0) {
+            success = 1;
             srv_addr_arr_print("después de reserva", th->srv_arr);
+            for (int i=0;i<n;i++) {
+                unsigned int ip=0; unsigned short port=0;
+                srv_addr_arr_get(th->srv_arr, srv_ids[i], &ip, &port);
+                write(th->socket, &ip, sizeof(ip));
+                write(th->socket, &port, sizeof(port));
+            }
+        } else {
+            for (int i=0;i<n;i++) {
+                unsigned int ip=0; unsigned short port=0;
+                write(th->socket, &ip, sizeof(ip));
+                write(th->socket, &port, sizeof(port));
+            }
         }
-        write(th->socket, &ip, sizeof(ip));
-        write(th->socket, &port, sizeof(port));
+
         char dummy;
         recv(th->socket, &dummy, sizeof(dummy), 0);
-        if (ip!=0 || port!=0) {
-            srv_addr_arr_free(th->srv_arr, 1, &srv_id);
+
+        if (success) {
+            srv_addr_arr_free(th->srv_arr, n, srv_ids);
             srv_addr_arr_print("después de liberar", th->srv_arr);
         }
+        free(srv_ids);
     }
     close(th->socket);
     free(th);
