@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <string.h>
 #include "worker.h"
 #include "manager.h"
@@ -107,12 +108,45 @@ int main(int argc, char *argv[]) {
             close(s_worker); close(s_mgr); free(ips); free(ports); free(s_workers); return 1; }
     }
 
-    int ack;
-    for (int i=0;i<num_used;i++) {
-        if (recv(s_workers[i], &ack, sizeof(ack), MSG_WAITALL)!=sizeof(ack)) {
-            perror("error en recv");
-            close(s_workers[i]); close(s_mgr); free(ips); free(ports); free(s_workers); return 1; }
-        close(s_workers[i]);
+    int next_block = num_used;
+    int active = num_used;
+    while (active > 0) {
+        fd_set rfds;
+        FD_ZERO(&rfds);
+        int maxfd = -1;
+        for (int i=0;i<num_used;i++) {
+            if (s_workers[i] != -1) {
+                FD_SET(s_workers[i], &rfds);
+                if (s_workers[i] > maxfd) maxfd = s_workers[i];
+            }
+        }
+        if (select(maxfd+1, &rfds, NULL, NULL, NULL) < 0) {
+            perror("select");
+            for (int i=0;i<num_used;i++) if (s_workers[i]!=-1) close(s_workers[i]);
+            close(s_mgr); free(ips); free(ports); free(s_workers); return 1;
+        }
+        for (int i=0;i<num_used;i++) {
+            if (s_workers[i] != -1 && FD_ISSET(s_workers[i], &rfds)) {
+                int ack;
+                if (recv(s_workers[i], &ack, sizeof(ack), MSG_WAITALL)!=sizeof(ack)) {
+                    perror("error en recv");
+                    for (int j=0;j<num_used;j++) if (s_workers[j]!=-1) close(s_workers[j]);
+                    close(s_mgr); free(ips); free(ports); free(s_workers); return 1;
+                }
+                if (next_block < nblocks) {
+                    int bnet = htonl(next_block++);
+                    if (write(s_workers[i], &bnet, sizeof(bnet)) != sizeof(bnet)) {
+                        perror("error en write");
+                        for (int j=0;j<num_used;j++) if (s_workers[j]!=-1) close(s_workers[j]);
+                        close(s_mgr); free(ips); free(ports); free(s_workers); return 1;
+                    }
+                } else {
+                    close(s_workers[i]);
+                    s_workers[i] = -1;
+                    active--;
+                }
+            }
+        }
     }
 
     free(ips); free(ports); free(s_workers);
