@@ -98,7 +98,15 @@ int main(int argc, char *argv[]) {
         s_workers[i]=s_worker;
         if (write(s_worker, input, strlen(input)+1)!=strlen(input)+1 ||
             write(s_worker, output, strlen(output)+1)!=strlen(output)+1 ||
-            write(s_worker, program, strlen(program)+1)!=strlen(program)+1 ||
+            write(s_worker, program, strlen(program)+1)!=strlen(program)+1) {
+            perror("error en write");
+            close(s_worker); close(s_mgr); free(ips); free(ports); free(s_workers); return 1; }
+        for (int a=8; a<argc; a++) {
+            if (write(s_worker, argv[a], strlen(argv[a])+1) != strlen(argv[a])+1) {
+                perror("error en write");
+                close(s_worker); close(s_mgr); free(ips); free(ports); free(s_workers); return 1; }
+        }
+        if (write(s_worker, "", 1) != 1 ||
             write(s_worker, &blks_net, sizeof(blks_net))!=sizeof(blks_net)) {
             perror("error en write");
             close(s_worker); close(s_mgr); free(ips); free(ports); free(s_workers); return 1; }

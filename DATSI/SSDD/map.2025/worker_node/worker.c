@@ -77,9 +77,28 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        char **args=NULL;
+        int nargs=0;
+        args = malloc(2*sizeof(char*));
+        if (!args) { perror("malloc"); close(s_conec); continue; }
+        args[nargs++] = program;
+        args[nargs] = NULL;
+        while (1) {
+            char buf[1024];
+            if (recv_string(s_conec, buf, sizeof(buf))<0) { perror("error en recv"); break; }
+            if (buf[0]=='\0') break;
+            char *dup=strdup(buf);
+            char **tmp=realloc(args, sizeof(char*)*(nargs+2));
+            if (!dup || !tmp) { perror("malloc"); free(dup); break; }
+            args=tmp; args[nargs++]=dup; args[nargs]=NULL;
+        }
+        args[nargs]=NULL;
+
         int blocksize_net;
         if (recv(s_conec, &blocksize_net, sizeof(blocksize_net), MSG_WAITALL) != sizeof(blocksize_net)) {
             perror("error en recv");
+            for (int i=1;i<nargs;i++) free(args[i]);
+            free(args);
             close(s_conec);
             continue;
         }
@@ -112,8 +131,8 @@ int main(int argc, char *argv[]) {
                 dup2(fd_out, STDOUT_FILENO);
                 close(fd_out);
 
-                execlp(program, program, (char *)NULL);
-                perror("execlp");
+                execvp(program, args);
+                perror("execvp");
                 _exit(1);
             } else if (pid>0) {
                 close(pipefd[0]);
@@ -145,6 +164,8 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        for (int i=1; i<nargs; i++) free(args[i]);
+        free(args);
         close(s_conec);
         printf("conexión del cliente cerrada\n");
     }
