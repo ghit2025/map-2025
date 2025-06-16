@@ -8,8 +8,6 @@
 #include "common_srv.h"
 #include "common_cln.h"
 
-#define OP_WORKER_REGISTER 1
-
 int main(int argc, char *argv[]) {
     int s_srv, s_mgr, s_conec;
     unsigned int addr_size;

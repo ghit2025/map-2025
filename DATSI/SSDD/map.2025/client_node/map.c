@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 #include "worker.h"
 #include "manager.h"
 #include "common.h"
@@ -52,6 +54,42 @@ int main(int argc, char *argv[]) {
     if ((res == -1) || !is_reg_file || !is_executable) {
         fprintf(stderr, "programa inválido\n"); return 1;
     }
+
+    /* fase de reserva de trabajadores */
+    int s_mgr = create_socket_cln_by_name(argv[1], argv[2]);
+    if (s_mgr < 0) return 1;
+
+    int op = htonl(OP_RESERVE_WORKER);
+    if (write(s_mgr, &op, sizeof(op)) != sizeof(op)) {
+        perror("error en write");
+        close(s_mgr); return 1;
+    }
+    int n = htonl(1); /* por ahora solo se reserva 1 */
+    if (write(s_mgr, &n, sizeof(n)) != sizeof(n)) {
+        perror("error en write");
+        close(s_mgr); return 1;
+    }
+    unsigned int ip;
+    unsigned short port;
+    if (recv(s_mgr, &ip, sizeof(ip), MSG_WAITALL) != sizeof(ip) ||
+        recv(s_mgr, &port, sizeof(port), MSG_WAITALL) != sizeof(port)) {
+        perror("error en recv");
+        close(s_mgr); return 1;
+    }
+
+    if (ip==0 && port==0) { /* no workers disponibles */
+        close(s_mgr);
+        return 2;
+    }
+
+    int s_worker = create_socket_cln_by_addr(ip, port);
+    if (s_worker < 0) {
+        close(s_mgr);
+        return 1;
+    }
+
+    close(s_worker);
+    close(s_mgr);
     return 0;
 }
 

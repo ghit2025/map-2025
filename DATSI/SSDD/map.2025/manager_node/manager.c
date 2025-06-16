@@ -8,8 +8,6 @@
 #include "common_srv.h"
 #include "srv_addr_arr.h"
 
-#define OP_WORKER_REGISTER 1
-
 typedef struct thread_info {
     int socket;
     struct sockaddr_in addr;
@@ -39,6 +37,31 @@ static void *connection_handler(void *arg) {
         srv_addr_arr_print("después de alta", th->srv_arr);
         int ack=htonl(0);
         write(th->socket, &ack, sizeof(ack));
+    } else if (opcode == OP_RESERVE_WORKER) {
+        int n;
+        if ((res=recv(th->socket, &n, sizeof(n), MSG_WAITALL))!=sizeof(n)) {
+            if (res!=0) perror("error en recv");
+            close(th->socket);
+            free(th);
+            return NULL;
+        }
+        n = ntohl(n);
+        if (n<1) n=1; /* por compatibilidad futura */
+        int srv_id;
+        unsigned int ip=0;
+        unsigned short port=0;
+        if (srv_addr_arr_alloc(th->srv_arr, 1, &srv_id)==0) {
+            srv_addr_arr_get(th->srv_arr, srv_id, &ip, &port);
+            srv_addr_arr_print("después de reserva", th->srv_arr);
+        }
+        write(th->socket, &ip, sizeof(ip));
+        write(th->socket, &port, sizeof(port));
+        char dummy;
+        recv(th->socket, &dummy, sizeof(dummy), 0);
+        if (ip!=0 || port!=0) {
+            srv_addr_arr_free(th->srv_arr, 1, &srv_id);
+            srv_addr_arr_print("después de liberar", th->srv_arr);
+        }
     }
     close(th->socket);
     free(th);
