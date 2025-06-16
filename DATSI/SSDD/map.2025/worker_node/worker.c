@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/sendfile.h>
 #include <string.h>
 #include "worker.h"
 #include "manager.h"
@@ -75,34 +77,72 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        pid_t pid=fork();
-        if (pid==0) {
-            /* Fase 4: redirección de stdin/out a ficheros */
-            char *base = strrchr(input, '/');
-            base = base ? base + 1 : input;
-            char out_file[1024];
-            snprintf(out_file, sizeof(out_file), "%s/%s-00000", output, base);
+        int blocksize_net;
+        if (recv(s_conec, &blocksize_net, sizeof(blocksize_net), MSG_WAITALL) != sizeof(blocksize_net)) {
+            perror("error en recv");
+            close(s_conec);
+            continue;
+        }
+        int blocksize = ntohl(blocksize_net);
 
-            int fd_in = open(input, O_RDONLY);
-            int fd_out = open(out_file, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-            if (fd_in < 0 || fd_out < 0) {
-                perror("open");
-                if (fd_in >= 0) close(fd_in);
-                if (fd_out >= 0) close(fd_out);
+        char *base = strrchr(input, '/');
+        base = base ? base + 1 : input;
+
+        while (1) {
+            int bnet;
+            int r = recv(s_conec, &bnet, sizeof(bnet), MSG_WAITALL);
+            if (r == 0) break; /* conexión cerrada por el cliente */
+            if (r != sizeof(bnet)) { perror("error en recv"); break; }
+            int block = ntohl(bnet);
+            printf("procesando bloque %d\n", block);
+
+            int pipefd[2];
+            if (pipe(pipefd)<0) { perror("pipe"); break; }
+
+            pid_t pid=fork();
+            if (pid==0) {
+                close(pipefd[1]);
+                dup2(pipefd[0], STDIN_FILENO);
+                close(pipefd[0]);
+
+                char out_file[1024];
+                snprintf(out_file, sizeof(out_file), "%s/%s-%05d", output, base, block);
+                int fd_out = open(out_file, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+                if (fd_out < 0) { perror("open"); _exit(1); }
+                dup2(fd_out, STDOUT_FILENO);
+                close(fd_out);
+
+                execlp(program, program, (char *)NULL);
+                perror("execlp");
                 _exit(1);
+            } else if (pid>0) {
+                close(pipefd[0]);
+                int fd_in = open(input, O_RDONLY);
+                if (fd_in >= 0) {
+                    off_t offset = (off_t)block * blocksize;
+                    size_t count = blocksize;
+                    struct stat st;
+                    if (fstat(fd_in, &st) == 0 && offset + count > st.st_size) {
+                        if (offset < st.st_size) count = st.st_size - offset; else count = 0;
+                    }
+                    off_t off = offset;
+                    while (count > 0) {
+                        ssize_t sent = sendfile(pipefd[1], fd_in, &off, count);
+                        if (sent <= 0) break;
+                        count -= sent;
+                    }
+                    close(fd_in);
+                }
+                close(pipefd[1]);
+                int st; waitpid(pid, &st, 0);
+                int ack=htonl(0);
+                write(s_conec, &ack, sizeof(ack));
+            } else {
+                perror("fork");
+                close(pipefd[0]);
+                close(pipefd[1]);
+                break;
             }
-            dup2(fd_in, STDIN_FILENO);
-            dup2(fd_out, STDOUT_FILENO);
-            close(fd_in);
-            close(fd_out);
-
-            execlp(program, program, (char *)NULL);
-            perror("execlp");
-            _exit(1);
-        } else if (pid>0) {
-            int st; waitpid(pid, &st, 0);
-            int ack=htonl(0);
-            write(s_conec, &ack, sizeof(ack));
         }
 
         close(s_conec);

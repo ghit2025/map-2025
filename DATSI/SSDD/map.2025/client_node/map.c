@@ -90,21 +90,33 @@ int main(int argc, char *argv[]) {
     }
 
     /* envia informacion inicial al worker */
+    int blks_net = htonl(blocksize);
     if (write(s_worker, input, strlen(input)+1)!=strlen(input)+1 ||
         write(s_worker, output, strlen(output)+1)!=strlen(output)+1 ||
-        write(s_worker, program, strlen(program)+1)!=strlen(program)+1) {
+        write(s_worker, program, strlen(program)+1)!=strlen(program)+1 ||
+        write(s_worker, &blks_net, sizeof(blks_net))!=sizeof(blks_net)) {
         perror("error en write");
         close(s_worker);
         close(s_mgr);
         return 1;
     }
 
+    int nblocks = (input_size + blocksize - 1) / blocksize;
     int ack;
-    if (recv(s_worker, &ack, sizeof(ack), MSG_WAITALL)!=sizeof(ack)) {
-        perror("error en recv");
-        close(s_worker);
-        close(s_mgr);
-        return 1;
+    for (int i=0; i<nblocks; i++) {
+        int bnet = htonl(i);
+        if (write(s_worker, &bnet, sizeof(bnet)) != sizeof(bnet)) {
+            perror("error en write");
+            close(s_worker);
+            close(s_mgr);
+            return 1;
+        }
+        if (recv(s_worker, &ack, sizeof(ack), MSG_WAITALL)!=sizeof(ack)) {
+            perror("error en recv");
+            close(s_worker);
+            close(s_mgr);
+            return 1;
+        }
     }
 
     close(s_worker);
