@@ -2,11 +2,24 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <sys/wait.h>
 #include "worker.h"
 #include "manager.h"
 #include "common.h"
 #include "common_srv.h"
 #include "common_cln.h"
+
+static int recv_string(int s, char *buf, size_t size) {
+    size_t i=0; char c;
+    while (i<size-1) {
+        int n=recv(s,&c,1,0);
+        if (n<=0) return -1;
+        buf[i++]=c;
+        if (c=='\0') break;
+    }
+    if (i==size-1) buf[i-1]='\0';
+    return 0;
+}
 
 int main(int argc, char *argv[]) {
     int s_srv, s_mgr, s_conec;
@@ -50,6 +63,27 @@ int main(int argc, char *argv[]) {
         }
         printf("conectado cliente con ip %s y puerto %u (formato red)\n",
                 inet_ntoa(clnt_addr.sin_addr), clnt_addr.sin_port);
+
+        char input[1024], output[1024], program[1024];
+        if (recv_string(s_conec, input, sizeof(input))<0 ||
+            recv_string(s_conec, output, sizeof(output))<0 ||
+            recv_string(s_conec, program, sizeof(program))<0) {
+            perror("error en recv");
+            close(s_conec);
+            continue;
+        }
+
+        pid_t pid=fork();
+        if (pid==0) {
+            execlp(program, program, (char *)NULL);
+            perror("execlp");
+            _exit(1);
+        } else if (pid>0) {
+            int st; waitpid(pid, &st, 0);
+            int ack=htonl(0);
+            write(s_conec, &ack, sizeof(ack));
+        }
+
         close(s_conec);
         printf("conexión del cliente cerrada\n");
     }
