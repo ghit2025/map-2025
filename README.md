@@ -9,7 +9,7 @@ Primera Practica Distribuidos Herramienta de Big Data en C
 ## 1. Visión general
 
 **MAP** es una mini-implementación educativa, inspirada en *MapReduce*, que permite procesar en paralelo ficheros muy grandes (decenas de MB hasta GB) sobre un clúster Linux distribuido.
-A diferencia de MapReduce completo, nuestra herramienta **solo implementa la fase *map*** (transformación y filtrado). El objetivo es que compruebes de primera mano:
+A diferencia de MapReduce completo, nuestra herramienta **solo implementa la fase *map*** (transformación y filtrado). El objetivo es:
 
 * cómo se orquesta un trabajo distribuido con un **maestro** y varios **trabajadores**;
 * cómo reservar nodos a través de un **gestor** independiente;
@@ -180,102 +180,3 @@ cd client_node  && make         # genera ./map
 | **8. Soporte de argumentos**    | - Pasar vector `argv` completo       | Cambiar a `execvp`, parsing robusto                                          |
 
 Avanza fase a fase, probando siempre en local antes de saltar a triqui o Docker.
-
----
-
-## 8. Pruebas recomendadas
-
-### 8.1 Local (todo en tu portátil)
-
-```bash
-# Gestor
-./manager_node/manager 12345
-
-# Dos workers (distintas terminales)
-./worker_node/worker localhost 12345
-./worker_node/worker localhost 12345
-
-# Cliente: dos workers, bloque 524 KiB, Quijote, swap_case.py
-./client_node/map localhost 12345 2 524288 entrada/el_quijote.txt salida programas/swap_case.py
-```
-
-### 8.2 Clúster *triqui.fi.upm.es*
-
-```bash
-# Nodo 1
-triqui1$ ./manager_node/manager 12345
-
-# Nodo 2 y 3
-triqui2$ ./worker_node/worker triqui1 12345
-triqui3$ ./worker_node/worker triqui1 12345
-
-# Nodo 4
-triqui4$ ./client_node/map triqui1 12345 2 524288 entrada/el_quijote.txt salida programas/swap_case.py
-```
-
-### 8.3 Docker (opcional)
-
-```bash
-# Gestor
-docker run --rm -it -v $PWD:/map ubuntu:24.04 bash -c \
-  "cd /map/manager_node && ./manager 12345"
-
-# Workers (x2)
-docker run --rm -it -v $PWD:/map ubuntu:24.04 bash -c \
-  "cd /map/worker_node && ./worker <IP_GESTOR> 12345"
-
-# Cliente
-docker run --rm -it -v $PWD:/map ubuntu:24.04 bash -c \
-  "cd /map/client_node && ./map <IP_GESTOR> 12345 2 524288 entrada/el_quijote.txt salida programas/swap_case"
-```
-
-> **Recuerda**: si tu imagen no trae Python, usa programas compilados (`swap_case` binario) en lugar de scripts `.py`.
-
----
-
-## 9. Consejos de implementación
-
-### 9.1 Gestor
-
-* Usa **threads** cortos para cada conexión; el hilo se queda bloqueado en `recv()` con el cliente hasta que este se caiga o cierre.
-* Protege la estructura `srv_addr_arr` con un **mutex** si vas a modificarla en varios hilos (no requerido, pero limpio).
-* Imprime el estado (`srv_addr_arr_print`) en los puntos críticos: alta, reserva, liberación.
-
-### 9.2 Trabajador
-
-* Invoca `create_socket_srv` con puerto 0 para dejar que el SO elija → recupera el puerto con `getsockname()`.
-* Para enviar el bloque:
-
-  ```c
-  int fd_in = open(ruta, O_RDONLY);
-  off_t offset = bloque * tam_bloque;
-  sendfile(pipe_write_fd, fd_in, &offset, tam_bloque_real);
-  ```
-* Por sencillez, mantén **un solo hilo**: procesa tareas secuencialmente.
-
-### 9.3 Cliente
-
-* Lee metadatos del fichero con `stat()` → `st_size`.
-* Calcula `num_bloques = (size + tam - 1) / tam`.
-* Programa *scheduling* con `select()` sobre el conjunto de sockets activos; cuando recibas ACK, decide si quedan tareas para ese worker.
-* Trata **todas las cadenas** como *null-terminated*; asegúrate de enviar siempre el byte `'\0'`.
-
----
-
-## 10. Posibles mejoras (fuera de alcance pero interesantes)
-
-* **Tolerancia a fallos**: re-ejecutar tarea si un worker no responde; heartbeats.
-* **Compresión en vuelo**: `zstd` sobre el bloque antes de enviarlo por la tubería.
-* **TLS** en los sockets para entornos no controlados.
-* **Balanceo inteligente**: estimar duración de tareas y asignarlas según carga.
-
----
-
-## 11. Créditos y licencias
-
-Todo el código que escribas será tuyo bajo la licencia que prefieras (MIT, GPL v3, etc.).
-Los ejemplos de scripts y el esqueleto se proporcionan con fines docentes.
-
----
-
-¡Con esto ya tienes una referencia exhaustiva para poblar tu **README.md** y comenzar el desarrollo en tu repositorio GitHub!
